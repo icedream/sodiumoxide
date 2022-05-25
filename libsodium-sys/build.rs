@@ -70,7 +70,8 @@ fn find_libsodium_env() {
     } else {
         "static"
     };
-    let name = if cfg!(target_env = "msvc") {
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let name = if target_os == "windows" {
         "libsodium"
     } else {
         "sodium"
@@ -134,15 +135,14 @@ You can try fixing this by installing pkg-config:
     }
 }
 
-#[cfg(windows)]
-fn make_libsodium(_: &str, _: &Path, _: &Path) -> PathBuf {
-    // We don't build anything on windows, we simply linked to precompiled
-    // libs.
-    get_lib_dir()
-}
-
-#[cfg(not(windows))]
 fn make_libsodium(target: &str, source_dir: &Path, install_dir: &Path) -> PathBuf {
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    if target_os == "windows" {
+        // We don't build anything on windows, we simply linked to precompiled
+        // libs.
+        return get_lib_dir();
+    }
+
     use std::{fs, process::Command, str};
 
     // Decide on CC, CFLAGS and the --host configure argument
@@ -293,42 +293,43 @@ fn make_libsodium(target: &str, source_dir: &Path, install_dir: &Path) -> PathBu
     install_dir.join("lib")
 }
 
-#[cfg(any(windows, target_env = "msvc"))]
 fn get_crate_dir() -> PathBuf {
     env::var("CARGO_MANIFEST_DIR").unwrap().into()
 }
 
-#[cfg(target_env = "msvc")]
 fn is_release_profile() -> bool {
     env::var("PROFILE").unwrap() == "release"
 }
 
-#[cfg(all(target_env = "msvc", target_pointer_width = "32"))]
 fn get_lib_dir() -> PathBuf {
-    if is_release_profile() {
-        get_crate_dir().join("msvc/Win32/Release/v142/")
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap();
+    let target_pointer_width = env::var("CARGO_CFG_TARGET_POINTER_WIDTH").unwrap();
+    if target_os == "windows" {
+        if target_env == "msvc" {
+            if target_pointer_width != "64" {
+                if is_release_profile() {
+                    get_crate_dir().join("msvc/Win32/Release/v142/")
+                } else {
+                    get_crate_dir().join("msvc/Win32/Debug/v142/")
+                }
+            } else {
+                if is_release_profile() {
+                    get_crate_dir().join("msvc/x64/Release/v142/")
+                } else {
+                    get_crate_dir().join("msvc/x64/Debug/v142/")
+                }
+            }
+        } else {
+            if target_pointer_width != "64" {
+                get_crate_dir().join("mingw/win32/")
+            } else {
+                get_crate_dir().join("mingw/win64/")
+            }
+        }
     } else {
-        get_crate_dir().join("msvc/Win32/Debug/v142/")
+        panic!("\nUnsupported target configuration: OS {}, Env {}, Pointer width {}.", target_os, target_env, target_pointer_width);
     }
-}
-
-#[cfg(all(target_env = "msvc", target_pointer_width = "64"))]
-fn get_lib_dir() -> PathBuf {
-    if is_release_profile() {
-        get_crate_dir().join("msvc/x64/Release/v142/")
-    } else {
-        get_crate_dir().join("msvc/x64/Debug/v142/")
-    }
-}
-
-#[cfg(all(windows, not(target_env = "msvc"), target_pointer_width = "32"))]
-fn get_lib_dir() -> PathBuf {
-    get_crate_dir().join("mingw/win32/")
-}
-
-#[cfg(all(windows, not(target_env = "msvc"), target_pointer_width = "64"))]
-fn get_lib_dir() -> PathBuf {
-    get_crate_dir().join("mingw/win64/")
 }
 
 fn build_libsodium() {
